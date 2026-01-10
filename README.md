@@ -1,6 +1,6 @@
 # Bubble Zoom KOReader Plugin
 
-This plugin enables users to magnify the selected (tapped or hold) speech bubble in a comics/manga page. You can access the plugin's settings from the top Typesetting (second from the left) menu.
+This plugin enables users to magnify the selected (tapped or long-pressed) speech bubble in a comics/manga page. You can access the plugin's settings from the top Typesetting (second from the left) menu.
 
 <img src="img/bubblezoom_demo_low.gif" width="450">
 
@@ -19,4 +19,4 @@ I've written and streamlined the image processing worklow (luma calculations, in
 # References
 - J. Sauvola and M. Pietikainen, “Adaptive document image binarization,” Pattern Recognition 33(2), pp. 225-236, 2000. DOI:10.1016/S0031-3203(99)00055-2
 
-- Comic showed in the preview video: https://www.teamfortress.com/tf05_old_wounds/
+- Comic shown in the preview video: https://www.teamfortress.com/tf05_old_wounds/
