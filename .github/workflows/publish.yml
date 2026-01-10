@@ -24,7 +24,7 @@ jobs:
           VERSION="${{ github.event.release.tag_name || github.event.inputs.version_tag }}"
           ZIP_NAME="bubblezoom.koplugin_${VERSION}.zip"
 
-          TARGET_DIR="lua_files"
+          TARGET_DIR="bubblezoom.koplugin"
           mkdir -p $TARGET_DIR
 
           cd src
@@ -34,6 +34,7 @@ jobs:
           zip -r $ZIP_NAME $TARGET_DIR
 
           echo "FINAL_ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "TARGET_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
       - name: Attach to Release
         if: github.event_name == 'release'
@@ -47,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.FINAL_ZIP_NAME }}
-          path: ${{ env.FINAL_ZIP_NAME }}
+          path: ${{ env.TARGET_DIR }}
           retention-days: 1
