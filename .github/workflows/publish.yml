@@ -1,0 +1,51 @@
+name: Plugin publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Manual version'
+        required: false
+        default: 'manual'
+
+jobs:
+  attach-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Get lua files
+        run: |
+          VERSION="${{ github.event.release.tag_name || github.event.inputs.version_tag }}"
+          ZIP_NAME="bubblezoom.koplugin_${VERSION}.zip"
+
+          TARGET_DIR="lua_files"
+          mkdir -p $TARGET_DIR
+
+          cd src
+          find . -name "*.lua" -exec cp --parents {} ../$TARGET_DIR/ \;
+          cd ..
+
+          zip -r $ZIP_NAME $TARGET_DIR
+
+          echo "FINAL_ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Attach to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.FINAL_ZIP_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FINAL_ZIP_NAME }}
+          path: ${{ env.FINAL_ZIP_NAME }}
+          retention-days: 1
