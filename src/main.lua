@@ -11,6 +11,10 @@ local util = require("util")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
+-- GC every few cache drops.
+local GC_EVERY = 5
+local gc_count = 0
+
 local BubbleZoomOverlay = Widget:extend{
     owner = nil,
     line_w = 2,
@@ -103,12 +107,23 @@ end
 
 ---Clears overlay state and Sauvola cache on page change; used by the page update hook.
 function BubbleZoom:onPageUpdate()
+    local had_cache = self.sauvola_cache ~= nil
     self.hold_consumed = false
     self.overlay_rect = nil
     self.overlay_src_rect = nil
     self.overlay_page = nil
     self.overlay_scale_active = nil
     self.sauvola_cache = nil
+    if had_cache then
+        gc_count = gc_count + 1
+        if gc_count >= GC_EVERY then
+            UIManager:scheduleIn(0.2, function()
+                collectgarbage()
+                collectgarbage()
+            end)
+            gc_count = 0
+        end
+    end
 end
 
 ---Populates the main menu entries for Bubble Zoom; used by menu registration.
@@ -668,7 +683,7 @@ function BubbleZoom:onBubbleHoldRelease()
     return false
 end
 
----Computes or reuses Sauvola cache (also luma and integral image caches) for a page render; used by detectBubbleRect.
+---Computes or reuses Sauvola cache (mask only) for a page render; used by detectBubbleRect.
 ---@param pageno number
 ---@param rotation number
 ---@param gamma number
@@ -727,7 +742,7 @@ function BubbleZoom:getSauvolaCache(pageno, rotation, gamma)
         local row_sum = 0
         local row_squares = 0
         for x = 1, width1 - 1 do
-            local value = tonumber(luma[original_row + x - 1])
+            local value = luma[original_row + x - 1]
             row_sum = row_sum + value
             row_squares = row_squares + value * value
             integral[row_offset + x] = integral[prev_row + x] + row_sum
@@ -766,7 +781,7 @@ function BubbleZoom:getSauvolaCache(pageno, rotation, gamma)
             local threshold = mean * (1 + sauvola_k * ((std_dev / sauvola_r) - 1))
 
             local index = row_idx + x
-            if tonumber(luma[index]) > threshold then
+            if luma[index] > threshold then
                 mask[index] = 255
             else
                 mask[index] = 0
@@ -783,9 +798,6 @@ function BubbleZoom:getSauvolaCache(pageno, rotation, gamma)
         r = sauvola_r,
         width = width,
         height = height,
-        luma = luma,
-        integral = integral,
-        integral_sq = integral_sq,
         mask = mask,
     }
     self.sauvola_cache = cache
@@ -843,60 +855,74 @@ function BubbleZoom:detectBubbleRect(pageno, tap_x, tap_y)
     ---@return number min_y
     ---@return number max_y
     local function floodFill(closed, roi)
-        local queue_x = {}
-        local queue_y = {}
-        local head = 1
-        local tail = 1
-        queue_x[1] = bx
-        queue_y[1] = by
+        local queue = ffi.new("struct { int32_t x; int32_t y; }[?]", pixel_count)
+        local head = 0
+        local tail = 0
+        queue[0].x = bx
+        queue[0].y = by
 
         local visited = ffi.new("uint8_t[?]", pixel_count)
         local min_x, max_x = bx, bx
         local min_y, max_y = by, by
         local filled = 0
+        local start_index = by * width + bx
+        visited[start_index] = 1
 
         while head <= tail do
-            local x = queue_x[head]
-            local y = queue_y[head]
+            local x = queue[head].x
+            local y = queue[head].y
             head = head + 1
             local index = y * width + x
-            if visited[index] == 0 then
-                visited[index] = 1
-                local is_white
-                if closed
-                    and x >= roi.x1 and x <= roi.x2
-                    and y >= roi.y1 and y <= roi.y2 then
-                    local rindex = (y - roi.y1) * roi.w + (x - roi.x1)
-                    is_white = closed[rindex] == 255
-                else
-                    is_white = mask[index] == 255
-                end
-                if is_white then
-                    filled = filled + 1
-                    if x < min_x then min_x = x end
-                    if x > max_x then max_x = x end
-                    if y < min_y then min_y = y end
-                    if y > max_y then max_y = y end
+            local is_white
+            if closed
+                and x >= roi.x1 and x <= roi.x2
+                and y >= roi.y1 and y <= roi.y2 then
+                local rindex = (y - roi.y1) * roi.w + (x - roi.x1)
+                is_white = closed[rindex] == 255
+            else
+                is_white = mask[index] == 255
+            end
+            if is_white then
+                filled = filled + 1
+                if x < min_x then min_x = x end
+                if x > max_x then max_x = x end
+                if y < min_y then min_y = y end
+                if y > max_y then max_y = y end
 
-                    if x > 0 then
+                if x > 0 then
+                    local nindex = index - 1
+                    if visited[nindex] == 0 then
+                        visited[nindex] = 1
                         tail = tail + 1
-                        queue_x[tail] = x - 1
-                        queue_y[tail] = y
+                        queue[tail].x = x - 1
+                        queue[tail].y = y
                     end
-                    if x < width - 1 then
+                end
+                if x < width - 1 then
+                    local nindex = index + 1
+                    if visited[nindex] == 0 then
+                        visited[nindex] = 1
                         tail = tail + 1
-                        queue_x[tail] = x + 1
-                        queue_y[tail] = y
+                        queue[tail].x = x + 1
+                        queue[tail].y = y
                     end
-                    if y > 0 then
+                end
+                if y > 0 then
+                    local nindex = index - width
+                    if visited[nindex] == 0 then
+                        visited[nindex] = 1
                         tail = tail + 1
-                        queue_x[tail] = x
-                        queue_y[tail] = y - 1
+                        queue[tail].x = x
+                        queue[tail].y = y - 1
                     end
-                    if y < height - 1 then
+                end
+                if y < height - 1 then
+                    local nindex = index + width
+                    if visited[nindex] == 0 then
+                        visited[nindex] = 1
                         tail = tail + 1
-                        queue_x[tail] = x
-                        queue_y[tail] = y + 1
+                        queue[tail].x = x
+                        queue[tail].y = y + 1
                     end
                 end
             end
